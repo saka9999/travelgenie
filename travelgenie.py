@@ -1,73 +1,104 @@
 import streamlit as st
 import pandas as pd
-from itertools import product
+import requests
 from datetime import datetime, timedelta
+from itertools import product
 
-# --- TravelGenie Interface ---
 st.set_page_config("✈️ TravelGenie", layout="wide")
-st.title("✈️ TravelGenie AI Flight Booker")
+st.title("✈️ TravelGenie – AI Flight Booker (LIVE Search)")
 
-# Inputs
+# Sidebar inputs
+with st.sidebar:
+    st.header("✈️ Travel Preferences")
+    origin = st.text_input("From (IATA code)", "BOM")
+    destination = st.text_input("To (IATA code)", "SEA")
+    journey_type = st.selectbox("Journey Type", ["Return", "One-way"])
+    passengers = st.slider("Passengers", 1, 5, 1)
+    travel_class = st.selectbox("Class", ["Economy", "Business"])
+    currency = st.selectbox("Currency", ["INR", "USD"])
+    max_stops = st.selectbox("Max Stops", [0, 1])
+    max_duration = st.slider("Max Duration per leg (hrs)", 8, 40, 26)
+
+# Date inputs
+st.subheader("📅 Select Date Ranges")
 col1, col2 = st.columns(2)
-
 with col1:
-    origin = st.text_input("🌐 Origin Airport (e.g., DEL)", "DEL")
-    destination = st.text_input("🌎 Destination Airport (e.g., JFK)", "JFK")
-    journey_type = st.selectbox("🔄 Journey Type", ["Return", "One-way"])
-    passengers = st.number_input("👥 Passengers", 1, 10, 1)
-
+    depart_start = st.date_input("Departure Start", datetime(2025, 6, 20))
+    depart_end = st.date_input("Departure End", datetime(2025, 6, 30))
 with col2:
-    travel_class = st.selectbox("💺 Travel Class", ["Economy", "Business"])
-    currency = st.selectbox("💱 Currency", ["INR", "USD"])
-    max_stops = st.selectbox("🛑 Max Stops Allowed", [0, 1, 2], index=1)
-    max_duration = st.slider("⏱️ Max Duration (hrs)", 1, 50, 26)
-
-# Dates selection
-col3, col4 = st.columns(2)
-with col3:
-    depart_range = st.date_input("🗓️ Departure Date Range",
-                                 (datetime(2025, 6, 20), datetime(2025, 6, 30)))
-
-with col4:
-    return_range = st.date_input("🗓️ Return Date Range",
-                                 (datetime(2025, 12, 1), datetime(2025, 12, 10)))
+    return_start = st.date_input("Return Start", datetime(2025, 12, 1))
+    return_end = st.date_input("Return End", datetime(2025, 12, 10))
 
 # Weekday combinations
-st.subheader("📅 Weekday Combinations")
-weekdays = ["Mon-Tue", "Tue-Wed", "Wed-Thu", "Thu-Fri", "Fri-Sat", "Sat-Sun", "Sun-Mon"]
-selected_combinations = st.multiselect("Select combinations to try:", weekdays, weekdays)
+weekday_options = ["Mon-Tue", "Tue-Wed", "Wed-Thu", "Thu-Fri", "Fri-Sat", "Sat-Sun", "Sun-Mon"]
+selected_combos = st.multiselect("Preferred Weekday Combinations", weekday_options, default=weekday_options)
 
-# Generate dummy combinations (for MVP)
-def daterange(start, end):
-    for n in range((end - start).days + 1):
-        yield start + timedelta(n)
-
-def weekday_combo(day_str):
-    days_map = {
-        "Mon": 0, "Tue": 1, "Wed": 2,
-        "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6
-    }
-    dep_day, ret_day = day_str.split('-')
-    dep_dates = [d for d in daterange(depart_range[0], depart_range[1]) if d.weekday() == days_map[dep_day]]
-    ret_dates = [d for d in daterange(return_range[0], return_range[1]) if d.weekday() == days_map[ret_day]]
+# Function to generate weekday date pairs
+def generate_date_pairs(start1, end1, start2, end2, combo):
+    day_map = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+    dep_day, ret_day = combo.split("-")
+    dep_dates = [start1 + timedelta(days=i) for i in range((end1 - start1).days + 1) if (start1 + timedelta(days=i)).weekday() == day_map[dep_day]]
+    ret_dates = [start2 + timedelta(days=i) for i in range((end2 - start2).days + 1) if (start2 + timedelta(days=i)).weekday() == day_map[ret_day]]
     return list(product(dep_dates, ret_dates))
 
-# Generate combinations
-all_combos = []
-for combo in selected_combinations:
-    all_combos.extend(weekday_combo(combo))
+# Create all date combinations
+all_date_combos = []
+for combo in selected_combos:
+    all_date_combos.extend(generate_date_pairs(depart_start, depart_end, return_start, return_end, combo))
 
-# Mock results
-results = pd.DataFrame({
-    "Departure": [c[0] for c in all_combos],
-    "Return": [c[1] for c in all_combos],
-    "Airline": ["Example Airline"] * len(all_combos),
-    "Stops": [max_stops] * len(all_combos),
-    "Duration (hrs)": [max_duration - 1] * len(all_combos),
-    "Price": [1000] * len(all_combos),
-    "Currency": [currency] * len(all_combos)
-})
+# RUN button
+run = st.button("🔍 Run Flight Search")
 
-# Display results
-st.subheader("🔍 Mock Results (MVP)")
-st.dataframe(results, use_container_width=True)
+if run and all_date_combos:
+    st.info("Fetching real-time results... please wait ⏳")
+
+    # Prepare payload
+    payload = {
+        "origin": origin,
+        "destination": destination,
+        "journey_type": journey_type,
+        "passengers": passengers,
+        "cabin_class": travel_class,
+        "currency": currency,
+        "date_combinations": [
+            {
+                "departure": dep.strftime("%Y-%m-%d"),
+                "return_date": ret.strftime("%Y-%m-%d") if journey_type == "Return" else None
+            }
+            for dep, ret in all_date_combos
+        ],
+        "max_stops": max_stops,
+        "max_duration": max_duration
+    }
+
+    # Replace this with your deployed API endpoint
+    API_URL = "https://travelgenie-backend.onrender.com/search_flights"
+
+    try:
+        res = requests.post(API_URL, json=payload, timeout=180)
+        if res.status_code == 200:
+            data = res.json()
+            if not data:
+                st.warning("No flights found for the selected combinations.")
+            else:
+                df = pd.DataFrame(data)
+                df.rename(columns={
+                    "departure_date": "Departure Date",
+                    "return_date": "Return Date",
+                    "airline": "Airline",
+                    "price": f"Price ({currency})",
+                    "duration_outbound": "Outbound Duration",
+                    "duration_return": "Return Duration",
+                    "stops_outbound": "Outbound Stops",
+                    "stops_return": "Return Stops",
+                    "fare_rules": "Fare Rules"
+                }, inplace=True)
+                st.success(f"Showing best flight options for {len(df)} combinations:")
+                st.dataframe(df, use_container_width=True)
+        else:
+            st.error(f"API Error: {res.status_code} – {res.text}")
+    except Exception as e:
+        st.exception(f"Failed to connect to API: {e}")
+
+elif run:
+    st.warning("No valid date combinations selected.")
