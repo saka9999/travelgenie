@@ -72,7 +72,7 @@ if run and all_date_combos:
     }
 
     # Replace this with your deployed API endpoint
-    API_URL = "https://travelgenie-backend.onrender.com/search_flights"
+    API_URL = "https://travelgenie-backend-4v0o.onrender.com/search_flights"
 
     try:
         res = requests.post(API_URL, json=payload, timeout=180)
